@@ -47,7 +47,7 @@ _pool: ConnectionPool | None = None
 
 def _get_pool() -> ConnectionPool:
     """Return the module-level connection pool, creating it on first call."""
-    print("🔌 Creating DB connection pool...")
+    print(" Creating DB connection pool...")
     global _pool
     if _pool is None:
         _pool = ConnectionPool(
@@ -80,7 +80,7 @@ def upsert_document(filename: str, source_path: str) -> str:
     and returns the *existing* doc_id rather than creating a duplicate.
     This makes ingestion idempotent at the document level.
     """
-    print(f"📌 Inserting document: {filename}")
+    print(f" Inserting document: {filename}")
     with get_db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -96,7 +96,7 @@ def upsert_document(filename: str, source_path: str) -> str:
             )
             row = cur.fetchone()
         conn.commit()
-    print(f"📌 Document ID returned: {row['id']}")
+    print(f" Document ID returned: {row['id']}")
     return str(row["id"])
 
 
@@ -132,12 +132,12 @@ def store_chunks(chunks: list[dict], doc_id: str) -> int:
         the BYTEA column. The JSONB metadata column does NOT duplicate it,
         keeping metadata lean.
     """
-    print(f"\n📦 Storing {len(chunks)} chunks...")
+    print(f"\n Storing {len(chunks)} chunks...")
     if not chunks:
         return 0
 
     contents = [c["content"] for c in chunks]
-    print("🧠 Generating embeddings...")
+    print(" Generating embeddings...")
 
     # ── Batch embed all chunks ────────────────────────────────────────────────
     all_embeddings: list[list[float]] = []
@@ -145,7 +145,7 @@ def store_chunks(chunks: list[dict], doc_id: str) -> int:
         batch = contents[i : i + _EMBED_BATCH_SIZE]
         all_embeddings.extend(_embeddings_model.embed_documents(batch)) 
         
-    print("✅ Embeddings ready") # Issue 8
+    print(" Embeddings ready") # Issue 8
 
     # ── Insert rows ───────────────────────────────────────────────────────────
     # Issue 10 fix: Only store fields in JSONB that don't already have a
@@ -337,7 +337,7 @@ def get_all_chunks(chunk_type: str | None = None, limit: int = 200) -> list[dict
     return results
 
 def document_exists(filename: str) -> bool:
-    print(f"🔍 Checking if document exists: {filename}")
+    print(f" Checking if document exists: {filename}")
 
     with get_db_conn() as conn:
         with conn.cursor() as cur:
@@ -348,6 +348,6 @@ def document_exists(filename: str) -> bool:
             result = cur.fetchone()
 
     exists = result is not None
-    print(f"📌 Exists: {exists}")
+    print(f" Exists: {exists}")
 
     return exists
