@@ -12,7 +12,7 @@ UPLOAD_DIR = "data"
 
 @router.post("/upload")
 async def upload_pdfs(files: List[UploadFile] = File(...)):  # Use List[UploadFile] here
-    print("\n🚀 ===== MULTI FILE UPLOAD =====")
+    print("\n ===== MULTI FILE UPLOAD =====")
 
     results = []
 
@@ -29,10 +29,10 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):  # Use List[UploadFi
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
 
-            print(f"✅ File saved at: {file_path}")
+            print(f" File saved at: {file_path}")
 
             # Step 3: Run ingestion process
-            print("⚡ Running ingestion...")
+            print(" Running ingestion...")
             result = run_ingestion(str(file_path))
 
             # Add the result for each file processed
@@ -41,7 +41,7 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):  # Use List[UploadFi
                 "result": result
             })
 
-        print("🎉 ALL FILES PROCESSED")
+        print(" ALL FILES PROCESSED")
 
         return {
             "status": "success",
@@ -50,5 +50,5 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):  # Use List[UploadFi
         }
 
     except Exception as e:
-        print(f"❌ ERROR: {e}")
+        print(f" ERROR: {e}")
         return {"error": str(e)}
