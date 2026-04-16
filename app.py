@@ -7,7 +7,7 @@ import os
 # ==========================================
 API_URL = "http://localhost:8000/api/v1"
 
-st.set_page_config(page_title="NORTHSTAR BANK - Credit Card Assistant", page_icon="💳", layout="wide")
+st.set_page_config(page_title="Credit Card Assistant", page_icon="", layout="wide")
 
 # ==========================================
 # SIDEBAR / TOGGLE
@@ -58,23 +58,9 @@ if app_mode == "Admin Mode":
 # USER MODE: QUERY
 # ==========================================
 elif app_mode == "User Mode":
-    st.title("NORTHSTAR BANK - Credit Card Assistant")
+    st.title("Credit Card Assistant")
     st.markdown("Analyze your spending patterns and verify bank policy compliance in real-time.")
 
-    # --- THE LAZY HACK: SECRET LOGIN SELECTION ---
-    st.sidebar.divider()
-    st.sidebar.subheader(" Login")
-    users = {
-    "James Mitchell": "CC-881001",
-    "Sarah Thompson": "CC-882001",
-    "Robert Clarke": "CC-884001",
-    "Emily Watson": "CC-885001",
-    "Daniel Foster": "CC-883001",
-    "Laura Bennett": "CC-886001"
-}
-    active_user = st.sidebar.selectbox("Select User", list(users.keys()))
-    secret_card_id = users[active_user]
-    
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -82,7 +68,7 @@ elif app_mode == "User Mode":
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-
+            
             # Show image if it exists in history
             if message["role"] == "assistant" and message.get("image_path"):
                 if os.path.exists(message["image_path"]):
@@ -90,7 +76,6 @@ elif app_mode == "User Mode":
                 else:
                     st.warning(f"Image file missing from disk: {message['image_path']}")
             
-            # Show metadata if it exists in history
             if message["role"] == "assistant" and "metadata" in message:
                 with st.expander("Sources & Metadata", expanded=False):
                     meta = message["metadata"]
@@ -111,26 +96,21 @@ elif app_mode == "User Mode":
 
     # --- LIVE QUERY LOOP ---
     if prompt := st.chat_input("Ask a question..."):
-        # Display the normal prompt so the user doesn't see our hack
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         with st.spinner("Analyzing..."):
             try:
-                
-                card_id_selected = f"{prompt} ( card_id = '{secret_card_id}')"
-                payload = {"query": card_id_selected}
-                # -----------------------------------
-
+                payload = {"query": prompt}
                 response = requests.post(f"{API_URL}/query", json=payload)
                 
                 if response.status_code == 200:
                     data = response.json()
                     raw_answer = data.get("answer", "No answer provided.")
                     
-                    clean_answer = raw_answer.replace("\\n", "\n").replace("`", "")
+                    clean_answer = raw_answer.replace("\\n", "\n")
                     
-                    # GET THE IMAGE PATH STRING FROM FASTAPI
+                    # EXTRACT IMAGE PATH
                     image_path_str = data.get("image_path")
                     
                     metadata = {
@@ -142,39 +122,37 @@ elif app_mode == "User Mode":
                     }
                     
                     with st.chat_message("assistant"):
+                        
                         with st.container():
-                            # 1. Print the text answer
-                            st.write(clean_answer)
-
-                            # 2. Display the image directly from the file path
+                            st.markdown(clean_answer)
+                            
+                            # DISPLAY IMAGE
                             if image_path_str:
                                 if os.path.exists(image_path_str):
                                     st.image(image_path_str, caption="Retrieved Context Image", use_container_width=True)
                                 else:
                                     st.warning(f"Image found in database, but file is missing from disk: {image_path_str}")
                         
-                        # 3. Display the metadata expander
                         with st.expander("Sources & Metadata", expanded=False):
-                            st.markdown(f" Document: {metadata['Document Name'] or 'N/A'}")
-                            st.markdown(f" Page(s): {metadata['Page No'] or 'N/A'}")
-                            st.markdown(f" Citation: {metadata['Citations'] or 'N/A'}")
+                            st.markdown(f"** Document:** {metadata['Document Name'] or 'N/A'}")
+                            st.markdown(f"** Page(s):** {metadata['Page No'] or 'N/A'}")
+                            st.markdown(f"** Citation:** {metadata['Citations'] or 'N/A'}")
                             
                             if metadata["SQL Query Executed"]:
-                                st.markdown("SQL Query Executed:")
+                                st.markdown("** SQL Query Executed:**")
                                 st.code(metadata["SQL Query Executed"], language="sql")
                             
                             if metadata["Source Chunks"]:
                                 st.markdown("---")
-                                st.markdown("Retrieved Chunks:")
+                                st.markdown("** Retrieved Context (Raw Chunks):**")
                                 raw_chunks = "\n\n".join([f"{chunk}" for chunk in metadata["Source Chunks"]])
                                 st.code(raw_chunks, language="text")
 
-                    # Save the response to session state history
                     st.session_state.messages.append({
                         "role": "assistant", 
                         "content": clean_answer,
                         "metadata": metadata,
-                        "image_path": image_path_str  # Save path so it renders when scrolling
+                        "image_path": image_path_str # SAVE IMAGE PATH FOR HISTORY
                     })
                 else:
                     st.error(f"Error {response.status_code}: {response.text}")
