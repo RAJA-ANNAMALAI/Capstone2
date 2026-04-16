@@ -1,14 +1,8 @@
-
-# FTS SEARCH 
-import base64
 import os
-import pathlib
-
-
 from src.core.db import get_db_conn
 
-#Keyword search
-def fts_search(query: str,k: int = 5,chunk_type: str | None = None) -> list[dict]:
+# Keyword search
+def fts_search(query: str, k: int = 5, chunk_type: str | None = None) -> list[dict]:
 
     print("\n [FTS SEARCH START]")
 
@@ -47,25 +41,20 @@ def fts_search(query: str,k: int = 5,chunk_type: str | None = None) -> list[dict
             })
             rows = cur.fetchall()
 
+    # --- SIMPLIFIED LOOP ---
     results = []
-
     for row in rows:
-        row = dict(row)
+        row_dict = dict(row)
 
-        #  SAME IMAGE HANDLING AS VECTOR SEARCH
-        img_path = row.pop("image_path", None)
-
-        if img_path and os.path.exists(img_path):
-            row["image_base64"] = base64.b64encode(
-                pathlib.Path(img_path).read_bytes()
-            ).decode()
-        else:
-            row["image_base64"] = None
+        # Ensure image_path stays in the dictionary (NO POPPING!)
+        if "image_path" not in row_dict:
+            row_dict["image_path"] = None
 
         # Rename score → similarity (for consistency)
-        row["similarity"] = float(row.pop("score"))
+        if "score" in row_dict:
+            row_dict["similarity"] = float(row_dict.pop("score"))
 
-        results.append(row)
+        results.append(row_dict)
 
     print(f" [FTS DONE] Returned {len(results)} results")
 
