@@ -10,18 +10,16 @@ router = APIRouter()
 
 UPLOAD_DIR = "data"
 
-@router.post("/upload")
+@router.post("/admin/upload")
 async def upload_pdfs(files: List[UploadFile] = File(...)):  # Use List[UploadFile] here
     print("\n ===== MULTI FILE UPLOAD =====")
-
     results = []
-
     try:
         # Step 1: create folder if not exists
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
         for file in files:
-            print(f"\n📄 Processing file: {file.filename}")
+            print(f"\n Processing file: {file.filename}")
 
             # Step 2: Save the file to the server
             file_path = Path(UPLOAD_DIR) / file.filename
