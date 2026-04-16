@@ -174,30 +174,18 @@ def store_chunks(chunks: list[dict], doc_id: str) -> int:
                 (doc_id,),
             )
             conn.commit()
-
             for idx, (chunk, embedding) in enumerate(zip(chunks, all_embeddings)):
-
-                # Skip failed embeddings
                 if embedding is None:
                     continue
 
                 try:
                     meta = chunk.get("metadata", {})
 
-                    img_b64 = meta.get("image_base64")
-                    image_path = None
-                    mime_type = "image/png" if img_b64 else None
-
-                    if img_b64:
-                        image_bytes = base64.b64decode(img_b64)
-                        img_dir = pathlib.Path("data/images")
-                        img_dir.mkdir(parents=True, exist_ok=True)
-
-                        img_hash = hashlib.sha256(image_bytes).hexdigest()[:16]
-                        img_file = img_dir / f"{doc_id}_{img_hash}.png"
-                        img_file.write_bytes(image_bytes)
-
-                        image_path = str(img_file)
+                    # --- CHANGE STARTS HERE ---
+                    # Don't decode base64; just take the path already created by the parser
+                    image_path = chunk.get("image_path") 
+                    mime_type = "image/png" if image_path else None
+                    # --- CHANGE ENDS HERE ---
 
                     embedding_str = "[" + ",".join(str(v) for v in embedding) + "]"
 
@@ -226,7 +214,7 @@ def store_chunks(chunks: list[dict], doc_id: str) -> int:
                             chunk.get("content_type"),
                             meta.get("element_type"),
                             chunk.get("content"),
-                            image_path,
+                            image_path,    # Storing the path string
                             mime_type,
                             meta.get("page_number"),
                             meta.get("section"),
@@ -236,7 +224,6 @@ def store_chunks(chunks: list[dict], doc_id: str) -> int:
                             json.dumps(clean_meta),
                         ),
                     )
-
                     rows_inserted += 1
 
                 except Exception as e:
@@ -296,21 +283,15 @@ def similarity_search(
             cur.execute(sql, {"vec": embedding_str, "chunk_type": chunk_type, "k": k})
             rows = cur.fetchall()
 
-    # Read image from filesystem and re-encode as base64 for callers.
     results = []
     for row in rows:
         row = dict(row)
-        img_path = row.pop("image_path", None)
-        if img_path and os.path.exists(img_path):
-            row["image_base64"] = base64.b64encode(
-                pathlib.Path(img_path).read_bytes()
-            ).decode()
-        else:
-            row["image_base64"] = None
+        # Simply keep the image_path in the dictionary. No base64 encoding needed!
+        if "image_path" not in row:
+            row["image_path"] = None
         results.append(row)
 
     return results
-
 
 # ---------------------------------------------------------------------------
 # Chunk listing (for preview / debugging)
@@ -349,19 +330,14 @@ def get_all_chunks(chunk_type: str | None = None, limit: int = 200) -> list[dict
     results = []
     for row in rows:
         row = dict(row)
-        img_path = row.pop("image_path", None)
-        if img_path and os.path.exists(img_path):
-            row["image_base64"] = base64.b64encode(
-                pathlib.Path(img_path).read_bytes()
-            ).decode()
-        else:
-            row["image_base64"] = None
+        if "image_path" not in row:
+            row["image_path"] = None
         results.append(row)
 
     return results
 
 def document_exists(filename: str) -> bool:
-    print(f"🔍 Checking if document exists: {filename}")
+    print(f" Checking if document exists: {filename}")
 
     with get_db_conn() as conn:
         with conn.cursor() as cur:
