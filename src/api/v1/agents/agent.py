@@ -55,7 +55,6 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=os.getenv("GOOGLE_API_KEY")
 )
 
-
 # GUARDRAIL NODE
 
 def guardrail(query: str):
