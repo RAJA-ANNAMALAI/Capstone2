@@ -7,7 +7,7 @@ import pathlib
 
 from src.core.db import get_db_conn
 
-
+#Keyword search
 def fts_search(query: str,k: int = 5,chunk_type: str | None = None) -> list[dict]:
 
     print("\n [FTS SEARCH START]")
