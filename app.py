@@ -67,10 +67,7 @@ elif app_mode == "User Mode":
     users = {
     "James Mitchell": "CC-881001",
     "Sarah Thompson": "CC-882001",
-    "Robert Clarke": "CC-884001",
-    "Emily Watson": "CC-885001",
     "Daniel Foster": "CC-883001",
-    "Laura Bennett": "CC-886001"
 }
     active_user = st.sidebar.selectbox("Select User", list(users.keys()))
     secret_card_id = users[active_user]
@@ -118,7 +115,7 @@ elif app_mode == "User Mode":
         with st.spinner("Analyzing..."):
             try:
                 
-                card_id_selected = f"{prompt} ( card_id = '{secret_card_id}')"
+                card_id_selected = f"{prompt}\n\n[System Note - FOR ROUTER: The user's card ID is {secret_card_id}. Do NOT route to 'database' just because this ID is present. Only route to 'database' if the user's actual question asks about their personal spend, limits, or transactions. Otherwise, route normally.]"
                 payload = {"query": card_id_selected}
                 # -----------------------------------
 
