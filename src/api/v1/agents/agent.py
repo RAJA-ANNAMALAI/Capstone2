@@ -129,8 +129,8 @@ def router_node(state: RAGState) -> RAGState:
 
         1. "database" 
            - Intent: User's own transaction history, lists, or amounts.
-           - Triggers: Words indicating OWNERSHIP of data ("my", "mine", "purchases I made").
-           - Examples: "Merchants I visited most?", "My Amazon spends?", "Highest single purchase?", "List my EMIs."
+           - Triggers: Words indicating OWNERSHIP of data ("my", "mine", "purchases I made" ,"do i have" ,"what is my").
+           - Examples: "Merchants I visited most?", "My Amazon spends?", "Highest single purchase?", "List my EMIs.", "do i have"
 
         2. "document" 
            - Intent: Bank rules, definitions, fee structures, or benefits. 
@@ -141,12 +141,7 @@ def router_node(state: RAGState) -> RAGState:
            - Intent: Applying a general rule to personal data. Needs DB (spend) + Docs (rules).
            - Examples: "Based on my spend, do I get the fee waiver?", "Did I earn 5x points on my last Zomato order?", "Calculate interest on my unpaid balance."
 
-        CRITICAL ROUTING RULES:
-        - EVERY query you receive will automatically include a "[System Note]" containing a Card ID. 
-        - DO NOT mistake the presence of this Card ID for a request for personal data. 
-        - IGNORE the Card ID when deciding the route. It is provided for backend context only.
-        - ONLY route to 'database' if the human's actual text explicitly asks for their personal transactions, limits, or account-specific history.
-
+    
         IMPORTANT:
         Look at the CONTEXT of the pronoun, not just its presence.
         - "Tell me about the EMI purchases I couldn't understand" -> 'I' refers to needing an explanation -> 'document'
@@ -185,7 +180,9 @@ def nl2sql_node(state: RAGState) -> RAGState:
         - Always add a LIMIT clause (max 50 rows) unless the question asks for aggregates.
         
         IMPORTANT:
-        IF THE USER ASKS ABOUT FEE WAIVERS, LIMITS, OR ELIGIBILITY: You MUST JOIN the `cards` table to retrieve the card variant/tier alongside the aggregated spend. The AI needs the tier to know the target.
+     IMPORTANT ROUTING RULES:
+        If the user asks about "fee waivers", you MUST retrieve BOTH the aggregated net_spend AND the card_variant from the credit_cards table.
+        If the user asks about "eligibility", "benefits", or "lounge access", retrieve ONLY the card_variant from the credit_cards table (Do NOT calculate spend).
         DO NOT perform multiplication or division calculations (like points to rupees) inside the SQL query. 
         Return the RAW data (e.g., total reward points) and let the Assistant do the math.
         If the question asks for "most", "highest", "maximum", "top", or similar superlatives,
@@ -375,6 +372,7 @@ def hybrid_node(state: RAGState) -> RAGState:
          For data summaries or progress tracking, use Markdown Tables or Bullet Points.
          If the user asks for a 'summary' or 'analysis', interpret this as a request for clear prose and structured text data only.
          IGNORE Data Tables/Scenarios completely unless the user explicitly types the word "table".
+         WHILE GENERATING ANSWER DO NOT MENTION THE CREDIT CARD ID OR NUMBER IN ANSWER
         
         CITE SOURCES STRICTLY:
         - Use 'page_no' ONLY for the page number found in the tags.
@@ -504,8 +502,9 @@ def generate_node(state: RAGState) -> RAGState:
          You are a text-only assistant unless the user explicitly uses the word "image", "chart", "graph", or "visualize" in their query.
          DO NOT trigger image generation, plotting tools, or visual artifacts for data summaries, financial calculations, or status reports unless specifically asked.
          IMAGE REQUESTS: If the user asks for an image/picture/mockup, your answer MUST BE EXACTLY: "Here is the requested image." 
-           DO NOT describe colors, layout, text, or visual details. ZERO extra descriptions unless explicitly asked.
-           IGNORE Data Tables/Scenarios completely unless the user explicitly types the word "table".
+         DO NOT describe colors, layout, text, or visual details. ZERO extra descriptions unless explicitly asked.
+         IGNORE Data Tables/Scenarios completely unless the user explicitly types the word "table".
+         WHILE GENERATING ANSWER DO NOT MENTION THE CREDIT CARD ID OR NUMBER IN ANSWER
         
 
         CITE SOURCES STRICTLY:
