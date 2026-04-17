@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import TypedDict, List, Literal, Annotated
 from dotenv import load_dotenv
 import cohere
+import base64
 
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -55,12 +56,12 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=os.getenv("GOOGLE_API_KEY")
 )
 
+
 # GUARDRAIL NODE
 
 def guardrail(query: str):
-    print(f" [GUARDRAIL CHECK] Processing Query: {query}")
-    print("="*50)
-
+    print(f"\n[GUARDRAIL CHECK]\n")
+ 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are the strict NorthStar Bank Domain Guardrail. Output ONLY YES or NO."),
         ("human", """Your job: 
@@ -71,6 +72,7 @@ def guardrail(query: str):
         - The user's personal financial metrics, transaction counts, and card features.
         - Questions about NorthStar rewards, EMIs, fees, waivers, or billing cycles.
         - Personal finance tracking strictly related to the user's credit card spend.
+        - Requests to view images, charts, diagrams, or visual examples related to credit cards or bank policies.
 
         REJECT (Output NO) for ALL of the following:
         - AI Identity & Persona: Asking the AI about its own money, feelings, location, creator, or identity (e.g., "how much money do you have", "who are you", "what is your name").
@@ -139,6 +141,12 @@ def router_node(state: RAGState) -> RAGState:
            - Intent: Applying a general rule to personal data. Needs DB (spend) + Docs (rules).
            - Examples: "Based on my spend, do I get the fee waiver?", "Did I earn 5x points on my last Zomato order?", "Calculate interest on my unpaid balance."
 
+        CRITICAL ROUTING RULES:
+        - EVERY query you receive will automatically include a "[System Note]" containing a Card ID. 
+        - DO NOT mistake the presence of this Card ID for a request for personal data. 
+        - IGNORE the Card ID when deciding the route. It is provided for backend context only.
+        - ONLY route to 'database' if the human's actual text explicitly asks for their personal transactions, limits, or account-specific history.
+
         IMPORTANT:
         Look at the CONTEXT of the pronoun, not just its presence.
         - "Tell me about the EMI purchases I couldn't understand" -> 'I' refers to needing an explanation -> 'document'
@@ -149,11 +157,13 @@ def router_node(state: RAGState) -> RAGState:
     ])
 
     decision = (prompt | structured_llm).invoke({"query": state["query"]})
+    
     print(f" [ROUTER DECISION] Route: {decision.route.upper()}")
     print(f" [ROUTER REASON] {decision.reason}")
+    clean_query = state["query"].split("[System Note")[0].strip()
     
-    return {**state, "route": decision.route}
-
+    # 3. Save the clean query back to the state
+    return {**state, "route": decision.route, "query": clean_query}
 
 
 # NL2SQL NODE
@@ -242,14 +252,6 @@ def retrieve_node(state: RAGState) -> dict:
         
     return {"messages": [response]}
 
-def should_continue_retrieval(state: RAGState) -> str:
-    last_message = state["messages"][-1]
-    if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-        print(" [FLOW CONTROL] Moving to TOOL EXECUTION")
-        return "tools"
-    print(" [FLOW CONTROL] Moving to RERANKING")
-    return "rerank"
-
 
 # RERANK NODE
 
@@ -314,6 +316,26 @@ def hybrid_node(state: RAGState) -> RAGState:
     print("--> Step 4: Final Generation")
     llm_structured = llm.with_structured_output(AIResponse)
 
+    active_image_path = None
+    
+    image_keywords = ["image", "chart", "graph", "visualize", "picture", "mockup"]
+    user_asked_for_image = any(word in state["query"].lower() for word in image_keywords)
+
+    if user_asked_for_image:
+        docs = state.get("reranked_docs", [])
+        
+        for d in docs:
+            content_lower = d.get("content", "").lower()
+            
+            # If this chunk describes an image or is labeled as an image
+            if d.get("chunk_type") == "image" or "illustration" in content_lower or "mockup" in content_lower:
+                path = d.get("image_path")
+                
+                if path:
+                    active_image_path = path 
+                    break
+        
+   
     context_parts = []
     if state.get("sql_result"):
         context_parts.append(f"--- DATABASE DATA ---\n{state['sql_result']}")
@@ -330,19 +352,29 @@ def hybrid_node(state: RAGState) -> RAGState:
         Your goal is to answer user queries by combining user spend data with NorthStar policies.
         
         RULES:
-         (CHECK FOR MISSING DATA): Look at the DATABASE DATA. If it is empty, NULL, or shows zero transactions, YOU MUST STATE: "There are no transaction records for this account." 
-         DO NOT use numbers or accounts from the DOCUMENT DATA to fill in the blanks.
+        (CHECK FOR MISSING DATA): Look at the DATABASE DATA. If it is empty, NULL, or shows zero transactions, YOU MUST STATE: "There are no transaction records for this account." 
+        DO NOT use numbers or accounts from the DOCUMENT DATA to fill in the blanks.
         STEP 1 (GET REAL DATA): Look at the DATABASE DATA to find the user's real transaction amounts or history.
         STEP 2 (GET THE RULE): Look at the DOCUMENT DATA to find the official bank rule (like the fee waiver threshold).
         STEP 3 (DO THE MATH): Calculate the difference between the user's real data and the bank rule. 
-         State clearly how much more they need to spend or if they have already met the goal.
+        State clearly how much more they need to spend or if they have already met the goal.
         1. REWARD POINTS: 1 point = ₹0.25 redemption value.
         2. FEE WAIVERS: Mention the target spend if asked about waivers.
         3. NATURAL RESPONSE: Don't say 'Based on the context'. 'Don't add extra words or sentences'.
-         "Answer without any extra phrases like "happy to help". Be professional.
+           "Answer without any extra phrases like "happy to help". Be professional.
         4. NO HTML: DO NOT use HTML tags like <br> or <p>.
         5. SPACING: Use a single empty line between paragraphs.
         Ignore mock scenarios and mock datas like CC-883001. Use only database data
+         FOCUSED ANSWERS: If the context contains multiple images, tables, or concepts, ONLY focus on the specific one requested by the user. 
+         Completely IGNORE and DO NOT describe the others.
+         Generate image if it is only asked in the query
+         IMAGE REQUESTS: If the user asks for an image/picture/mockup, your answer MUST BE EXACTLY: "Here is the requested image." 
+         DO NOT trigger image generation, plotting tools, or visual artifacts for data summaries, financial calculations, or status reports unless specifically asked.
+         IMAGE REQUESTS: If the user asks for an image/picture/mockup, your answer MUST BE EXACTLY: "Here is the requested image.
+         DO NOT describe colors, layout, text, or visual details. ZERO extra descriptions unless explicitly asked.
+         For data summaries or progress tracking, use Markdown Tables or Bullet Points.
+         If the user asks for a 'summary' or 'analysis', interpret this as a request for clear prose and structured text data only.
+         IGNORE Data Tables/Scenarios completely unless the user explicitly types the word "table".
         
         CITE SOURCES STRICTLY:
         - Use 'page_no' ONLY for the page number found in the tags.
@@ -361,6 +393,7 @@ def hybrid_node(state: RAGState) -> RAGState:
 
     response = result.model_dump()
     response["sql_query_executed"] = state.get("generated_sql")
+    response["image_path"] = active_image_path
     response["source_chunks"] = [
         f"[Page: {d.get('page_number', 'N/A')} | File: {d.get('source_file', 'N/A')}]\n{d.get('content')}" 
         for d in reranked_docs if d.get("content")
@@ -393,7 +426,7 @@ def rewrite_node(state: RAGState) -> RAGState:
         ("human", """Task: Rewrite the user query to improve document retrieval in a Credit Card Product Guide.
 
     Rules:
-    1. Do NOT just provide synonyms (e.g., 'ill' for 'sick').
+    1. Do NOT just provide synonyms.
     2. If the specific term is unlikely to be found, expand to BROADER or RELATED banking concepts.
     3. EXAMPLES:
     - If user asks about 'waiving a late fee', search for 'finance charges', 'late payment policy', and 'interest rates'.
@@ -418,6 +451,31 @@ def generate_node(state: RAGState) -> RAGState:
     print("\n[GENERATE NODE] Finalizing Response...")
     llm_structured = llm.with_structured_output(AIResponse)
 
+    
+    active_image_path = None
+    
+    image_keywords = ["image", "chart", "graph", "visualize", "picture", "mockup"]
+    user_asked_for_image = any(word in state["query"].lower() for word in image_keywords)
+
+    if user_asked_for_image:
+        print("\n[DEBUG] --- STARTING IMAGE SEARCH IN DOCS ---")
+        docs = state.get("reranked_docs", [])
+        
+        for d in docs:
+            content_lower = d.get("content", "").lower()
+            
+            # If this chunk describes an image or is labeled as an image
+            if d.get("chunk_type") == "image" or "illustration" in content_lower or "mockup" in content_lower:
+                path = d.get("image_path")
+                print(f"[DEBUG] Found Image Chunk! DB says image_path is: {path}")
+                
+                if path:
+                    active_image_path = path  # Notice we removed os.path.exists for now
+                    print(f"[DEBUG] Successfully attached path to response: {active_image_path}")
+                    break
+        print( "--- END IMAGE SEARCH --- \n")
+    
+
     context_parts = []
     if state.get("sql_result"):
         context_parts.append(f"--- USER TRANSACTION DATA ---\n{state['sql_result']}")
@@ -439,6 +497,16 @@ def generate_node(state: RAGState) -> RAGState:
         4. Provide a clear, natural-sounding answer using the transaction data and banking guide context provided.
         5. Ensure you handle currency and credit limit terminology appropriately for the BFSI domain.
         6. Avoid "Based on" or" provided context tells "sentences.
+        7. FOCUSED ANSWERS: If the context contains multiple images, tables, or concepts, ONLY focus on the specific one requested by the user. Completely IGNORE and DO NOT describe the others.
+        8. Generate image only if it is asked in the query. 
+         For data summaries or progress tracking, use Markdown Tables or Bullet Points.
+-        If the user asks for a 'summary' or 'analysis', interpret this as a request for clear prose and structured text data only.
+         You are a text-only assistant unless the user explicitly uses the word "image", "chart", "graph", or "visualize" in their query.
+         DO NOT trigger image generation, plotting tools, or visual artifacts for data summaries, financial calculations, or status reports unless specifically asked.
+         IMAGE REQUESTS: If the user asks for an image/picture/mockup, your answer MUST BE EXACTLY: "Here is the requested image." 
+           DO NOT describe colors, layout, text, or visual details. ZERO extra descriptions unless explicitly asked.
+           IGNORE Data Tables/Scenarios completely unless the user explicitly types the word "table".
+        
 
         CITE SOURCES STRICTLY:
         - Use 'page_no' ONLY for the page number found in the tags.
@@ -454,6 +522,7 @@ def generate_node(state: RAGState) -> RAGState:
     })
     
     response = result.model_dump()
+    response["image_path"] = active_image_path
     response["sql_query_executed"] = state.get("generated_sql")
     response["source_chunks"] = [
         f"[Page: {d.get('page_number', 'N/A')} | File: {d.get('source_file', 'N/A')}]\n{d.get('content')}" 
@@ -498,15 +567,9 @@ def build_graph():
             "both": "hybrid"
             })
     
+    g.add_edge("retrieve", "tools")
     g.add_edge("nl2sql", "generate") 
-    g.add_edge("hybrid", END) 
-
-    g.add_conditional_edges(
-            "retrieve", 
-            should_continue_retrieval, 
-            {"tools": "tools", 
-            "rerank": "rerank"})
-    
+    g.add_edge("hybrid", END)     
     g.add_edge("tools", "rerank")
     g.add_edge("rerank", "validate")
 
@@ -537,7 +600,7 @@ rag_app = build_graph()
 
 def run_rag_agent(query: str):
     
-    print("Agent Running")
+    print("\nAgent Running")
 
     if guardrail(query):
         print(" [SESSION END] Query blocked by guardrail.")
