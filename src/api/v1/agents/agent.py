@@ -534,14 +534,6 @@ def generate_node(state: RAGState) -> RAGState:
 
 # GRAPH 
 
-def route_after_validate(state: RAGState) -> str:
-    if state["is_valid"] or state["attempts"] >= 3:
-        if state["attempts"] >= 3:
-            print(" [FLOW CONTROL] Max rewrite attempts reached. Proceeding with current context.")
-        return "generate"
-    print(" [FLOW CONTROL] Context irrelevant. Routing to REWRITE.")
-    return "rewrite"
-
 def build_graph():
     print(" [BUILD] Compiling State Graph...")
     g = StateGraph(RAGState)
